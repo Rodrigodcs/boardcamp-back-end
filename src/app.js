@@ -240,7 +240,6 @@ app.get("/rentals", async (req,res)=>{
 
 //ADICIONAR ALUGUEL
 app.post("/rentals", async (req,res)=>{
-    console.log(dayjs(Date.now()).format("YYYY-MM-DD"))
     const validatedRental = rentalSchema.validate(req.body)
     if(validatedRental.error){
         res.sendStatus(400)
@@ -267,8 +266,76 @@ app.post("/rentals", async (req,res)=>{
             INSERT INTO rentals 
             ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") 
             VALUES ($1,$2,$3,$4,$5,$6,$7)
-        `,[newRental.customerId,newRental.gameId,dayjs(Date.now()).format("YYYY-MM-DD"),newRental.daysRented, null,newRental.daysRented*gameExists.rows[0].pricePerDay,null ])
+        `,[newRental.customerId,newRental.gameId,dayjs().format("YYYY-MM-DD"),newRental.daysRented, null,newRental.daysRented*gameExists.rows[0].pricePerDay,null ])
         res.send(result)
+    }catch(e){
+        console.log(e)
+    }
+})
+
+
+//RETORNAL ALUGUEL
+app.post("/rentals/:id/return", async (req,res)=>{
+
+    try{
+        const rentalId= parseInt(req.params.id)
+        const rentalInQuestion= await connection.query('SELECT * FROM rentals WHERE id = $1',[rentalId])
+        console.log(rentalInQuestion.rows)
+        if(rentalInQuestion.rows.length===0){
+            res.sendStatus(404)
+            return
+        }
+        if(rentalInQuestion.rows[0].returnDate){
+            res.sendStatus(400)
+            return
+        }
+
+        const today=dayjs()
+        const rentedDate=rentalInQuestion.rows[0].rentDate
+        const daysAway= today.diff(rentedDate, "day")
+
+        if(daysAway<=rentalInQuestion.rows[0].daysRented){
+            
+            const rentalReturn = await connection.query(`
+                UPDATE rentals 
+                SET "returnDate" = $1 
+                WHERE id = $2
+            `,[dayjs().format("YYYY-MM-DD"), rentalId])
+            res.sendStatus(200)
+            return
+        }
+        const daysDelayed= daysAway-rentalInQuestion.rows[0].daysRented
+        const fee= daysDelayed*rentalInQuestion.rows[0].originalPrice
+        const rentalReturn = await connection.query(`
+            UPDATE rentals 
+            SET "returnDate" = $1, "delayFee" = $2 
+            WHERE id = $3
+        `,[dayjs().format("YYYY-MM-DD"), fee, rentalId])
+        res.sendStatus(200)
+
+    }catch(e){
+        console.log(e)
+    }
+})
+
+//APAGAR ALUGUEL
+app.delete("/rentals/:id", async (req,res)=>{
+    try{
+        console.log("aquiii")
+        const rentalId= parseInt(req.params.id)
+        const rentalInQuestion= await connection.query('SELECT * FROM rentals WHERE id = $1',[rentalId])
+        console.log("aquiii")
+        if(rentalInQuestion.rows.length===0){
+            res.sendStatus(404)
+            return
+        }
+        if(rentalInQuestion.rows[0].returnDate){
+            res.sendStatus(400)
+            return
+        }
+        console.log("aquiii")
+        const result= await connection.query('DELETE FROM rentals WHERE id = $1',[rentalId])
+        res.sendStatus(200)
     }catch(e){
         console.log(e)
     }
@@ -279,7 +346,6 @@ const rentalSchema = joi.object({
     gameId: joi.number().integer().min(1).required(),
     daysRented: joi.number().integer().min(1).required()
 })
-
 
 app.listen(4000, ()=>{
     console.log("Server running on port 4000") 
