@@ -20,9 +20,12 @@ const connection = new Pool({
 
 //LISTAR CATEGORIAS
 app.get("/categories", async (req,res)=>{
-    const result= await connection.query('SELECT * FROM categories')
-    console.log(result.rows)
-    res.send(result.rows)
+    try{
+        const result= await connection.query('SELECT * FROM categories')
+        res.send(result.rows)
+    }catch(e){
+        console.log(e)
+    }
 })
 
 
@@ -35,13 +38,14 @@ app.post("/categories", async (req,res)=>{
         res.sendStatus(400)
         return
     }
+    console.log(newCategory)
     try{
-        const categoryExists= await connection.query('SELECT * FROM categories WHERE name LIKE $1',[newCategory])
+        const categoryExists= await connection.query('SELECT * FROM categories WHERE name LIKE $1',[newCategory.name])
         if(categoryExists.rows.length>0){
             res.sendStatus(409)
             return
         }
-        await connection.query('INSERT INTO categories (name) VALUES ($1)',[newCategory])
+        await connection.query('INSERT INTO categories (name) VALUES ($1)',[newCategory.name])
         res.sendStatus(201)
     } catch(e){
         console.log(e)
@@ -52,13 +56,21 @@ const categorySchema = joi.object({
     name: joi.string().min(1).required().trim()
 })
 
+
 //LISTAR JOGOS
 app.get("/games", async (req,res)=>{
-    const result= await connection.query('SELECT * FROM games')
-    console.log(result.rows)
-    res.send(result.rows)
+    try{
+        if(req.query.name){
+            const result= await connection.query('SELECT * FROM games WHERE name ILIKE $1',[req.query.name+'%'])
+            res.send(result.rows)
+        } else{
+            const result= await connection.query('SELECT * FROM games')
+            res.send(result.rows)
+        }
+    } catch(e){
+        console.log(e)
+    }
 })
-
 
 //ADICIONAR JOGOS
 app.post("/games", async (req,res)=>{
@@ -94,27 +106,75 @@ const gamesSchema = joi.object({
     pricePerDay: joi.number().integer().min(1).required()
 })
 
-//LISTAR CLIENTES
+//LISTAR CLIENTES TODOS
 app.get("/customers", async (req,res)=>{
     const result= await connection.query('SELECT * FROM customers')
     console.log(result.rows)
     res.send(result.rows)
 })
 
+//LISTAR CLIENTES UNICO
+app.get("/customers/:id", async (req,res)=>{
+    const customerId = parseInt(req.params.id)
+    const result= await connection.query('SELECT * FROM customers WHERE id = $1',[customerId])
+    console.log(result.rows)
+    res.send(result.rows)
+})
 
 //ADICIONAR CLIENTES
 app.post("/customers", async (req,res)=>{
-    const newCustomer=req.body;
-    console.log(req.body)
+    const validatedCustomer = customersSchema.validate(req.body)
+    if(validatedCustomer.error){
+        res.sendStatus(400)
+        return
+    }
+    const newCustomer=validatedCustomer.value;
     try{
+        const customerExists= await connection.query('SELECT * FROM customers WHERE cpf = $1',[newCustomer.cpf])
+        if (customerExists.rows.length){
+            res.sendStatus(409)
+            return
+        }
         const result= await connection.query('INSERT INTO customers (name, phone, cpf, birthday) VALUES ($1,$2,$3,$4)',[newCustomer.name,newCustomer.phone,newCustomer.cpf,newCustomer.birthday])
-        console.log(result)
         res.send(result)
     }catch(e){
         console.log(e)
     }
 })
 
+//ATUALIZAR CLIENTE
+app.put("/customers/:id", async (req,res)=>{
+    const customerId = parseInt(req.params.id)
+    console.log(customerId)
+    const validatedCustomer = customersSchema.validate(req.body)
+    if(validatedCustomer.error){
+        res.sendStatus(400)
+        return
+    }
+    const newCustomer=validatedCustomer.value;
+    try{
+        const customerExists= await connection.query('SELECT * FROM customers WHERE cpf = $1 AND id != $2',[newCustomer.cpf,customerId])
+        if (customerExists.rows.length){
+            res.sendStatus(409)
+            return
+        }
+        const result= await connection.query('UPDATE customers SET name = $1, phone = $2, cpf = $3, birthday = $4 WHERE id = $5',[newCustomer.name,newCustomer.phone,newCustomer.cpf,newCustomer.birthday,customerId])
+        res.send(result)
+    }catch(e){
+        console.log(e)
+    }
+})
+
+const customerIdSchema = joi.object({
+    id: joi.number().integer().min(1).required()
+})
+
+const customersSchema = joi.object({
+    name: joi.string().min(1).required().trim(),
+    phone: joi.string().required().trim().pattern(/^[0-9]{10,11}$/),
+    cpf: joi.string().required().trim().pattern(/^[0-9]{11}$/),
+    birthday: joi.string().required().trim(),//.pattern(/^[0-9]{4}\-[0-9]{2}\-[0-9]{2}$/),
+})
 
 app.listen(4000, ()=>{
     console.log("Server running on port 4000") 
